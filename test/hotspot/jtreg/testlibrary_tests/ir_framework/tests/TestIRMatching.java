@@ -51,6 +51,8 @@ import java.util.regex.Pattern;
 
 public class TestIRMatching {
 
+    private static List<Exception> exceptions = new ArrayList<>();
+
     public static void main(String[] args) {
         runFailOnTestsArgs(BadFailOnConstraint.create(AndOr1.class, "test1(int)", 1, "CallStaticJava"), "-XX:TLABRefillWasteFraction=50", "-XX:+UsePerfData", "-XX:+UseTLAB");
         runFailOnTestsArgs(BadFailOnConstraint.create(AndOr1.class, "test2()", 1, "CallStaticJava"), "-XX:TLABRefillWasteFraction=50", "-XX:-UsePerfData", "-XX:+UseTLAB");
@@ -207,6 +209,8 @@ public class TestIRMatching {
                  BadFailOnConstraint.create(CheckCastArray.class, "arrayCopy(java.lang.Object[],java.lang.Class)", 1, "checkcast_arraycopy")
         );
 
+
+
         // Redirect stdout to stream and then check if we find required IR encoding read from socket.
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(baos);
@@ -217,30 +221,36 @@ public class TestIRMatching {
             runWithArguments(CompilationOutputOfFails.class);
             shouldNotReach();
         } catch (IRViolationException e) {
-            System.out.flush();
-            String output = baos.toString();
-            baos.reset();
-            Pattern pattern = Pattern.compile(">>> Compilation.*both\\d.*\\RPrintIdeal:(?:(?!PrintOpto|>>> Compilation)[\\S\\s])+PrintOptoAssembly");
-            Matcher matcher = pattern.matcher(output);
-            Asserts.assertEQ(matcher.results().count(), (long)7, "Could not find all both methods: " + output);
-            pattern = Pattern.compile(">>> Compilation.*ideal\\d.*\\RPrintIdeal:(?:(?!>>> Compilation)[\\S\\s])+");
-            matcher = pattern.matcher(output);
-            int count = 0;
-            while (matcher.find()) {
-                String match = matcher.group();
-                Asserts.assertFalse(match.contains("PrintOptoAssembly"), "Cannot contain opto assembly: " + output);
-                count++;
+            try {
+                System.out.flush();
+                String output = baos.toString();
+                baos.reset();
+                Pattern pattern = Pattern.compile(">>> Compilation.*both\\d.*\\RPrintIdeal:(?:(?!PrintOpto|>>> Compilation)[\\S\\s])+PrintOptoAssembly");
+                Matcher matcher = pattern.matcher(output);
+                Asserts.assertEQ(matcher.results().count(), (long) 7, "Could not find all both methods: " + output);
+                pattern = Pattern.compile(">>> Compilation.*ideal\\d.*\\RPrintIdeal:(?:(?!>>> Compilation)[\\S\\s])+");
+                matcher = pattern.matcher(output);
+                int count = 0;
+                while (matcher.find()) {
+                    String match = matcher.group();
+                    Asserts.assertFalse(match.contains("PrintOptoAssembly"), "Cannot contain opto assembly: " + output);
+                    count++;
+                }
+                Asserts.assertEQ(count, 7, "Could not find all ideal methods: " + output);
+                pattern = Pattern.compile(">>> Compilation.*opto\\d.*\\RPrintOptoAssembly:(?:(?!>>> Compilation)[\\S\\s])+");
+                matcher = pattern.matcher(output);
+                count = 0;
+                while (matcher.find()) {
+                    String match = matcher.group();
+                    Asserts.assertFalse(match.contains("PrintIdeal"), "Cannot contain opto assembly: " + output);
+                    count++;
+                }
+                Asserts.assertEQ(count, 7, "Could not find all opto methods");
+            } catch (Exception e1) {
+                exceptions.add(e1);
             }
-            Asserts.assertEQ(count, 7, "Could not find all ideal methods: " + output);
-            pattern = Pattern.compile(">>> Compilation.*opto\\d.*\\RPrintOptoAssembly:(?:(?!>>> Compilation)[\\S\\s])+");
-            matcher = pattern.matcher(output);
-            count = 0;
-            while (matcher.find()) {
-                String match = matcher.group();
-                Asserts.assertFalse(match.contains("PrintIdeal"), "Cannot contain opto assembly: " + output);
-                count++;
-            }
-            Asserts.assertEQ(count, 7, "Could not find all opto methods");
+        } catch (Exception e) {
+            exceptions.add(e);
         }
 
         runWithArguments(FlagComparisons.class, "-XX:TLABRefillWasteFraction=50");
@@ -264,10 +274,24 @@ public class TestIRMatching {
         findIrIds(output, "testMatchAllIf50", 7, 12, 19, 21);
         findIrIds(output, "testMatchNoneIf50", 4, 7, 11, 16, 20, 22);
         System.setOut(old);
+
+        if (!exceptions.isEmpty()) {
+            System.err.println("TestIRMatching failed with one or more exceptions:");
+            for (Exception e : exceptions) {
+                System.err.println(e.getMessage());
+                e.printStackTrace(System.err);
+                System.err.println("---------");
+            }
+            throw new RuntimeException();
+        }
     }
 
     private static void runWithArguments(Class<?> clazz, String... args) {
-        new TestFramework(clazz).addFlags(args).start();
+        try {
+            new TestFramework(clazz).addFlags(args).start();
+        } catch (Exception e) {
+            exceptions.add(e);
+        }
     }
 
     private static void runCheck(String[] args , Constraint... constraints) {
@@ -275,7 +299,13 @@ public class TestIRMatching {
             new TestFramework(constraints[0].getKlass()).addFlags(args).start(); // All constraints have the same class.
             shouldNotReach();
         } catch (IRViolationException e) {
-            checkConstraints(e, constraints);
+            try {
+                checkConstraints(e, constraints);
+            } catch (Exception e1) {
+                exceptions.add(e1);
+            }
+        } catch (Exception e) {
+            exceptions.add(e);
         }
     }
 
@@ -284,7 +314,13 @@ public class TestIRMatching {
             TestFramework.run(constraints[0].getKlass()); // All constraints have the same class.
             shouldNotReach();
         } catch (IRViolationException e) {
-            checkConstraints(e, constraints);
+            try {
+                checkConstraints(e, constraints);
+            } catch (Exception e1) {
+                exceptions.add(e1);
+            }
+        } catch (Exception e) {
+            exceptions.add(e);
         }
     }
 
@@ -307,7 +343,13 @@ public class TestIRMatching {
             new TestFramework(constraint.getKlass()).addFlags(args).start(); // All constraints have the same class.
             shouldNotReach();
         } catch (IRViolationException e) {
-            constraint.checkConstraint(e);
+            try {
+                constraint.checkConstraint(e);
+            } catch (Exception e1) {
+                exceptions.add(e1);
+            }
+        } catch (Exception e) {
+            exceptions.add(e);
         }
     }
 
