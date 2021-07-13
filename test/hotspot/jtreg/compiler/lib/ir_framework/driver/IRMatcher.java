@@ -487,7 +487,13 @@ public class IRMatcher {
                                        + "-".repeat(String.valueOf(failures).length()) + System.lineSeparator());
             failuresBuilder.append(">>> Check stdout for compilation output of the failed methods")
                            .append(System.lineSeparator()).append(System.lineSeparator());
-            throw new IRViolationException(failuresBuilder.toString(), compilationsBuilder.toString());
+            String compilations = compilationsBuilder.toString();
+            if (!compilations.contains("<!-- safepoint while printing -->")) {
+                // In some very rare cases, the VM output to regex match on contains "<!-- safepoint while printing -->"
+                // (emitted by ttyLocker::break_tty_for_safepoint) which might be the reason for a matching error.
+                // Do not throw an exception in this case (i.e. bailout).
+                throw new IRViolationException(failuresBuilder.toString(), compilationsBuilder.toString());
+            }
         }
     }
 }

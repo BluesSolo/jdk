@@ -26,6 +26,8 @@ package ir_framework.tests;
 import compiler.lib.ir_framework.*;
 import compiler.lib.ir_framework.driver.IRViolationException;
 import jdk.test.lib.Asserts;
+import jdk.test.lib.Platform;
+import sun.hotspot.WhiteBox;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -41,7 +43,10 @@ import java.util.regex.Pattern;
  * @summary Test IR matcher with different default IR node regexes. Use -DPrintIREncoding.
  *          Normally, the framework should be called with driver.
  * @library /test/lib /
- * @run main/othervm -DPrintIREncoding=true ir_framework.tests.TestIRMatching
+ * @build sun.hotspot.WhiteBox
+ * @run driver jdk.test.lib.helpers.ClassFileInstaller sun.hotspot.WhiteBox
+ * @run main/othervm -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
+ *                    -DPrintIREncoding=true  ir_framework.tests.TestIRMatching
  */
 
 public class TestIRMatching {
@@ -55,7 +60,7 @@ public class TestIRMatching {
         runWithArguments(GoodCount.class, "-XX:TLABRefillWasteFraction=50");
         runWithArguments(MultipleFailOnGood.class, "-XX:TLABRefillWasteFraction=50");
 
-        String[] allocMatches = { "MyClass", "call,static  wrapper for: _new_instance_Java" };
+        String[] allocMatches = { "MyClass", "wrapper for: _new_instance_Java" };
         runCheck(BadFailOnConstraint.create(MultipleFailOnBad.class, "fail1()", 1, 1, "Store"),
                  BadFailOnConstraint.create(MultipleFailOnBad.class, "fail1()", 1,  3, "Store"),
                  GoodFailOnRegexConstraint.create(MultipleFailOnBad.class, "fail1()", 1,  2, 4),
@@ -88,7 +93,7 @@ public class TestIRMatching {
                  BadCountsConstraint.create(BadCount.class, "bad3()", 2,  1, "Store")
         );
 
-        String[] allocArrayMatches = { "MyClass", "call,static  wrapper for: _new_array_Java"};
+        String[] allocArrayMatches = { "MyClass", "wrapper for: _new_array_Java"};
         runCheck(BadFailOnConstraint.create(AllocArray.class, "allocArray()", 1, allocArrayMatches),
                  BadFailOnConstraint.create(AllocArray.class, "allocArray()", 2,  allocArrayMatches),
                  GoodFailOnConstraint.create(AllocArray.class, "allocArray()", 3),
@@ -105,7 +110,7 @@ public class TestIRMatching {
                  BadFailOnConstraint.create(RunTests.class, "bad1(int)", 2, "Load")
         );
 
-        runCheck(new String[] {"-XX:-UseCompressedClassPointers"},
+        runCheck(new String[] {"-XX:+IgnoreUnrecognizedVMOptions", "-XX:-UseCompressedClassPointers"},
                  BadFailOnConstraint.create(Loads.class, "load()", 1, 1, "Load"),
                  BadFailOnConstraint.create(Loads.class, "load()", 1, 3, "LoadI"),
                  BadCountsConstraint.create(Loads.class, "load()", 1, 1, 0),
@@ -170,7 +175,9 @@ public class TestIRMatching {
                  BadFailOnConstraint.create(Traps.class, "rangeCheck()", 3, "CallStaticJava", "uncommon_trap", "null_check"),
                  GoodRuleConstraint.create(Traps.class, "rangeCheck()", 4),
                  BadFailOnConstraint.create(Traps.class, "instrinsicOrTypeCheckedInlining()", 1, "CallStaticJava", "uncommon_trap"),
-                 BadFailOnConstraint.create(Traps.class, "instrinsicOrTypeCheckedInlining()", 2, "CallStaticJava", "uncommon_trap", "intrinsic_or_type_checked_inlining"),
+                 WhiteBox.getWhiteBox().isJVMCISupportedByGC() ?
+                    BadFailOnConstraint.create(Traps.class, "instrinsicOrTypeCheckedInlining()", 2, "CallStaticJava", "uncommon_trap", "intrinsic_or_type_checked_inlining")
+                    : GoodRuleConstraint.create(Traps.class, "instrinsicOrTypeCheckedInlining()", 2),
                  BadFailOnConstraint.create(Traps.class, "instrinsicOrTypeCheckedInlining()", 3, "CallStaticJava", "uncommon_trap", "null_check"),
                  GoodRuleConstraint.create(Traps.class, "instrinsicOrTypeCheckedInlining()", 4)
         );
@@ -184,9 +191,18 @@ public class TestIRMatching {
 
         runCheck(BadFailOnConstraint.create(ScopeObj.class, "scopeObject()", 1, "ScObj"));
         runCheck(BadFailOnConstraint.create(Membar.class, "membar()", 1, "MemBar"));
-        runCheck(BadFailOnConstraint.create(CheckCastArray.class, "array()", 1, "cmp", "precise klass"),
-                 BadFailOnConstraint.create(CheckCastArray.class, "array()", 2, 1,"cmp", "precise klass", "MyClass"),
-                 BadFailOnConstraint.create(CheckCastArray.class, "array()", 2, 2,"cmp", "precise klass", "ir_framework/tests/MyClass"),
+
+        String cmp;
+        if (Platform.isPPC() || Platform.isX86()) {
+            cmp = "CMP";
+        } else if (Platform.isS390x()){
+            cmp = "CLR";
+        } else {
+            cmp = "cmp";
+        }
+        runCheck(BadFailOnConstraint.create(CheckCastArray.class, "array()", 1, cmp, "precise klass"),
+                 BadFailOnConstraint.create(CheckCastArray.class, "array()", 2, 1,cmp, "precise klass", "MyClass"),
+                 BadFailOnConstraint.create(CheckCastArray.class, "array()", 2, 2,cmp, "precise klass", "ir_framework/tests/MyClass"),
                  GoodFailOnConstraint.create(CheckCastArray.class, "array()", 3),
                  BadFailOnConstraint.create(CheckCastArray.class, "arrayCopy(java.lang.Object[],java.lang.Class)", 1, "checkcast_arraycopy")
         );
@@ -393,7 +409,7 @@ class MultipleFailOnGood {
 class MultipleFailOnBad {
     private int iFld;
     private int myInt;
-    private MyClass myClass;
+    private MyClassEmpty myClass;
 
     @Test
     @IR(failOn = {IRNode.STORE, IRNode.CALL, IRNode.STORE_I, IRNode.LOOP})
@@ -426,21 +442,21 @@ class MultipleFailOnBad {
     }
 
     @Test
-    @IR(failOn = {IRNode.STORE_OF_CLASS, "MyClass", IRNode.ALLOC, IRNode.CALL})
+    @IR(failOn = {IRNode.STORE_OF_CLASS, "MyClassEmpty", IRNode.ALLOC, IRNode.CALL})
     public void fail6() {
-        myClass = new MyClass();
+        myClass = new MyClassEmpty();
     }
 
     @Test
-    @IR(failOn = {IRNode.STORE_OF_CLASS, "UnknownClass", IRNode.ALLOC_OF, "MyClass"})
+    @IR(failOn = {IRNode.STORE_OF_CLASS, "UnknownClass", IRNode.ALLOC_OF, "MyClassEmpty"})
     public void fail7() {
-        myClass = new MyClass();
+        myClass = new MyClassEmpty();
     }
 
     @Test
-    @IR(failOn = {IRNode.STORE_OF_CLASS, "UnknownClass", IRNode.ALLOC_OF, "ir_framework/tests/MyClassSub"})
+    @IR(failOn = {IRNode.STORE_OF_CLASS, "UnknownClass", IRNode.ALLOC_OF, "ir_framework/tests/MyClassEmptySub"})
     public void fail8() {
-        myClass = new MyClassSub();
+        myClass = new MyClassEmptySub();
     }
 
     @Test
@@ -564,6 +580,7 @@ class GoodCount {
 
     long result;
     MyClass myClass = new MyClass();
+    MyClassEmpty myClassEmpty = new MyClassEmpty();
     MyClass myClassSubPoly = new MyClassSub();
     MyClassSub myClassSub = new MyClassSub();
 
@@ -647,11 +664,11 @@ class GoodCount {
     }
 
     @Test
-    @IR(counts = {IRNode.STORE_OF_FIELD, "myClass", "1", IRNode.STORE_OF_CLASS, "GoodCount", "1",
-                  IRNode.STORE_OF_CLASS, "/GoodCount", "1", IRNode.STORE_OF_CLASS, "MyClass", "0"},
-        failOn = {IRNode.STORE_OF_CLASS, "MyClass"})
+    @IR(counts = {IRNode.STORE_OF_FIELD, "myClassEmpty", "1", IRNode.STORE_OF_CLASS, "GoodCount", "1",
+                  IRNode.STORE_OF_CLASS, "/GoodCount", "1", IRNode.STORE_OF_CLASS, "MyClassEmpty", "0"},
+        failOn = {IRNode.STORE_OF_CLASS, "MyClassEmpty"})
     public void good6() {
-        myClass = new MyClass();
+        myClassEmpty = new MyClassEmpty();
     }
 
     @Test
@@ -1122,7 +1139,7 @@ class CheckCastArray {
     public void testArrayCopy() {
         arrayCopy(mArr, MyClass[].class);
         arrayCopy(mArr, Object[].class);
-        arrayCopy(mArr, MyClass2[].class);
+        arrayCopy(mArr, MyClassEmpty[].class);
     }
 }
 
@@ -1328,7 +1345,9 @@ class MyClass {
     static long lFldStatic;
 }
 
-class MyClass2 {}
+class MyClassEmpty {}
+
+class MyClassEmptySub extends MyClassEmpty {}
 
 class MyClassSub extends MyClass {
     int iFld;
@@ -1375,7 +1394,7 @@ abstract class Constraint {
 
     @Override
     public String toString() {
-        return "Constraint " + getClass().getSimpleName() + ", method: " + methodName + ", rule: " + ruleIdx;
+        return "Constraint " + getClass().getSimpleName() + ", " + errorPrefix();
     }
 
     public Class<?> getKlass() {
@@ -1383,7 +1402,7 @@ abstract class Constraint {
     }
 
     protected String errorPrefix() {
-        return "Method " + methodName + ", Rule " + ruleIdx;
+        return "Class " + klass.getSimpleName() + ", Method " + methodName + ", Rule " + ruleIdx;
     }
 
     public void checkConstraint(IRViolationException e) {
@@ -1405,8 +1424,6 @@ abstract class Constraint {
     }
 
     abstract protected void checkIRRule(String irRule);
-
-    protected void checkOnMethod(String method) {}
 }
 
 // Constraint for rule that does not fail.
@@ -1538,7 +1555,9 @@ abstract class RegexConstraint extends Constraint {
                     for (int i = 1; i < splitRegex.length; i++) {
                         String regexString = splitRegex[i];
                         if (regexString.startsWith(String.valueOf(regexIndex))) {
-                            Asserts.assertTrue(matches.stream().allMatch(regexString::contains),
+                            // Do matching on actual match and not on regex string
+                            String actualMatch = regexString.split("\\R", 2)[1];
+                            Asserts.assertTrue(matches.stream().allMatch(actualMatch::contains),
                                                errorPrefix() + " could not find all matches at Regex " + regexIndex);
                             matched = true;
                         }
