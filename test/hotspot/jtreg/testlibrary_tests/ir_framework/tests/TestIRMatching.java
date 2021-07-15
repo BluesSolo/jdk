@@ -250,6 +250,7 @@ public class TestIRMatching {
                 exceptions.add(e1);
             }
         } catch (Exception e) {
+            System.out.println(TestFramework.getLastTestVMOutput());
             exceptions.add(e);
         }
 
@@ -305,6 +306,7 @@ public class TestIRMatching {
                 exceptions.add(e1);
             }
         } catch (Exception e) {
+            System.out.println(TestFramework.getLastTestVMOutput());
             exceptions.add(e);
         }
     }
@@ -320,6 +322,7 @@ public class TestIRMatching {
                 exceptions.add(e1);
             }
         } catch (Exception e) {
+            System.out.println(TestFramework.getLastTestVMOutput());
             exceptions.add(e);
         }
     }
@@ -349,6 +352,7 @@ public class TestIRMatching {
                 exceptions.add(e1);
             }
         } catch (Exception e) {
+            System.out.println(TestFramework.getLastTestVMOutput());
             exceptions.add(e);
         }
     }
