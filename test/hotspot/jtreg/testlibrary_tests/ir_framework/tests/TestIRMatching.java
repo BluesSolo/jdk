@@ -225,12 +225,17 @@ public class TestIRMatching {
             shouldNotReach();
         } catch (IRViolationException e) {
             try {
+                boolean failed = false;
                 System.out.flush();
                 String output = baos.toString();
                 baos.reset();
                 Pattern pattern = Pattern.compile(">>> Compilation.*both\\d.*\\RPrintIdeal:(?:(?!PrintOpto|>>> Compilation)[\\S\\s])+PrintOptoAssembly");
                 Matcher matcher = pattern.matcher(output);
-                Asserts.assertEQ(matcher.results().count(), (long) 7, "Could not find all both methods: " + output);
+                long bothCount = matcher.results().count();
+                if (bothCount != 7L) {
+                    exceptions.add(new RuntimeException("Could not find all both() methods, expected 7 but found " + bothCount));
+                    failed = true;
+                }
                 pattern = Pattern.compile(">>> Compilation.*ideal\\d.*\\RPrintIdeal:(?:(?!>>> Compilation)[\\S\\s])+");
                 matcher = pattern.matcher(output);
                 int count = 0;
@@ -239,7 +244,10 @@ public class TestIRMatching {
                     Asserts.assertFalse(match.contains("PrintOptoAssembly"), "Cannot contain opto assembly: " + output);
                     count++;
                 }
-                Asserts.assertEQ(count, 7, "Could not find all ideal methods: " + output);
+                if (count != 7) {
+                    exceptions.add(new RuntimeException("Could not find all ideal() methods, expected 7 but found " + bothCount));
+                    failed = true;
+                }
                 pattern = Pattern.compile(">>> Compilation.*opto\\d.*\\RPrintOptoAssembly:(?:(?!>>> Compilation)[\\S\\s])+");
                 matcher = pattern.matcher(output);
                 count = 0;
@@ -248,7 +256,14 @@ public class TestIRMatching {
                     Asserts.assertFalse(match.contains("PrintIdeal"), "Cannot contain opto assembly: " + output);
                     count++;
                 }
-                Asserts.assertEQ(count, 7, "Could not find all opto methods");
+                if (count != 7) {
+                    exceptions.add(new RuntimeException("Could not find all opto() methods, expected 7 but found " + bothCount));
+                    failed = true;
+                }
+                if (failed) {
+                    System.out.println(TestFramework.getLastTestVMOutput());
+                    System.out.println(output);
+                }
             } catch (Exception e1) {
                 addException(e1);
             }
