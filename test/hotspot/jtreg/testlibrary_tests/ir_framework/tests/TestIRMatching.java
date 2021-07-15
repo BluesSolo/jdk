@@ -45,13 +45,18 @@ import java.util.regex.Pattern;
  * @library /test/lib /
  * @build sun.hotspot.WhiteBox
  * @run driver jdk.test.lib.helpers.ClassFileInstaller sun.hotspot.WhiteBox
- * @run main/othervm -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+WhiteBoxAPI
- *                    -DPrintIREncoding=true  ir_framework.tests.TestIRMatching
+ * @run main/othervm/timeout=240 -Xbootclasspath/a:. -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockDiagnosticVMOptions
+ *                               -XX:+WhiteBoxAPI -DPrintIREncoding=true  ir_framework.tests.TestIRMatching
  */
 
 public class TestIRMatching {
 
-    private static List<Exception> exceptions = new ArrayList<>();
+    private static final List<Exception> exceptions = new ArrayList<>();
+
+    private static void addException(Exception e) {
+        System.out.println(TestFramework.getLastTestVMOutput());
+        exceptions.add(e);
+    }
 
     public static void main(String[] args) {
         runFailOnTestsArgs(BadFailOnConstraint.create(AndOr1.class, "test1(int)", 1, "CallStaticJava"), "-XX:TLABRefillWasteFraction=50", "-XX:+UsePerfData", "-XX:+UseTLAB");
@@ -209,8 +214,6 @@ public class TestIRMatching {
                  BadFailOnConstraint.create(CheckCastArray.class, "arrayCopy(java.lang.Object[],java.lang.Class)", 1, "checkcast_arraycopy")
         );
 
-
-
         // Redirect stdout to stream and then check if we find required IR encoding read from socket.
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(baos);
@@ -218,7 +221,7 @@ public class TestIRMatching {
         System.setOut(ps);
 
         try {
-            runWithArguments(CompilationOutputOfFails.class);
+            runWithArgumentsFail(CompilationOutputOfFails.class);
             shouldNotReach();
         } catch (IRViolationException e) {
             try {
@@ -247,11 +250,10 @@ public class TestIRMatching {
                 }
                 Asserts.assertEQ(count, 7, "Could not find all opto methods");
             } catch (Exception e1) {
-                exceptions.add(e1);
+                addException(e1);
             }
         } catch (Exception e) {
-            System.out.println(TestFramework.getLastTestVMOutput());
-            exceptions.add(e);
+            addException(e);
         }
 
         runWithArguments(FlagComparisons.class, "-XX:TLABRefillWasteFraction=50");
@@ -283,7 +285,7 @@ public class TestIRMatching {
                 e.printStackTrace(System.err);
                 System.err.println("---------");
             }
-            throw new RuntimeException();
+            throw new RuntimeException("TestIRMatching failed with one or more exceptions - check stderr and stdout");
         }
     }
 
@@ -291,8 +293,12 @@ public class TestIRMatching {
         try {
             new TestFramework(clazz).addFlags(args).start();
         } catch (Exception e) {
-            exceptions.add(e);
+            addException(e);
         }
+    }
+
+    private static void runWithArgumentsFail(Class<?> clazz, String... args) {
+        new TestFramework(clazz).addFlags(args).start();
     }
 
     private static void runCheck(String[] args , Constraint... constraints) {
@@ -300,14 +306,9 @@ public class TestIRMatching {
             new TestFramework(constraints[0].getKlass()).addFlags(args).start(); // All constraints have the same class.
             shouldNotReach();
         } catch (IRViolationException e) {
-            try {
-                checkConstraints(e, constraints);
-            } catch (Exception e1) {
-                exceptions.add(e1);
-            }
+            checkConstraints(e, constraints);
         } catch (Exception e) {
-            System.out.println(TestFramework.getLastTestVMOutput());
-            exceptions.add(e);
+            addException(e);
         }
     }
 
@@ -316,14 +317,9 @@ public class TestIRMatching {
             TestFramework.run(constraints[0].getKlass()); // All constraints have the same class.
             shouldNotReach();
         } catch (IRViolationException e) {
-            try {
-                checkConstraints(e, constraints);
-            } catch (Exception e1) {
-                exceptions.add(e1);
-            }
+            checkConstraints(e, constraints);
         } catch (Exception e) {
-            System.out.println(TestFramework.getLastTestVMOutput());
-            exceptions.add(e);
+            addException(e);
         }
     }
 
@@ -336,7 +332,7 @@ public class TestIRMatching {
         } catch (Exception e1) {
             System.out.println(TestFramework.getLastTestVMOutput());
             System.out.println(message);
-            throw e1;
+            exceptions.add(e1);
         }
     }
 
@@ -349,11 +345,10 @@ public class TestIRMatching {
             try {
                 constraint.checkConstraint(e);
             } catch (Exception e1) {
-                exceptions.add(e1);
+                addException(e);
             }
         } catch (Exception e) {
-            System.out.println(TestFramework.getLastTestVMOutput());
-            exceptions.add(e);
+            addException(e);
         }
     }
 
